@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>短视频大赛AI评审工作台 · 多端协同版</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: oklch(0.975 0.008 95);
+  --card: oklch(0.99 0.004 95);
+  --text: oklch(0.18 0.01 260);
+  --text-muted: oklch(0.45 0.02 260);
+  --red: oklch(0.52 0.22 20);
+  --red-bg: oklch(0.95 0.03 20);
+  --red-light: oklch(0.88 0.06 20);
+  --gold: oklch(0.72 0.15 85);
+  --gold-bg: oklch(0.94 0.06 85);
+  --cream: oklch(0.97 0.02 90);
+  --pass-green: oklch(0.55 0.15 160);
+  --pass-green-bg: oklch(0.94 0.04 160);
+  --border: oklch(0.88 0.02 260);
+  --shadow: 0 2px 16px oklch(0 0 0 / 0.06);
+  --radius: 12px;
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'Noto Sans SC', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-body); background: var(--bg); color: var(--text);
+  min-height: 100vh; line-height: 1.6; -webkit-font-smoothing: antialiased;
+}
+.hidden { display: none !important; }
+
+.login-overlay {
+  position: fixed; inset: 0; background: oklch(0 0 0 / 0.4); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.login-card {
+  background: var(--card); border-radius: 16px; padding: 36px; width: 400px;
+  box-shadow: 0 8px 40px oklch(0 0 0 / 0.12); text-align: center;
+}
+.login-card h2 {
+  font-family: var(--font-display); font-size: 22px; color: var(--red); margin-bottom: 4px;
+}
+.login-card .sub { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+.login-card input[type="text"], .login-card input[type="password"] {
+  width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border);
+  font-family: var(--font-body); font-size: 14px; margin-bottom: 12px; background: var(--bg);
+  transition: border-color 0.2s;
+}
+.login-card input:focus { outline: none; border-color: var(--red); }
+.login-card .role-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.login-card .role-tab {
+  flex: 1; padding: 10px; border-radius: 8px; border: 1.5px solid var(--border);
+  font-size: 13px; font-weight: 600; cursor: pointer; background: var(--bg);
+  color: var(--text-muted); transition: all 0.15s; font-family: var(--font-body);
+}
+.login-card .role-tab.active { border-color: var(--red); color: var(--red); background: var(--red-bg); }
+.login-card .login-btn {
+  width: 100%; padding: 12px; border-radius: 8px; border: none;
+  font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--font-body);
+  background: var(--red); color: #fff; transition: all 0.15s;
+}
+.login-card .login-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+.header {
+  padding: 28px 40px 0; display: flex; align-items: flex-end; justify-content: space-between;
+  border-bottom: 1px solid var(--border); padding-bottom: 20px;
+}
+.header-left h1 {
+  font-family: var(--font-display); font-size: 28px; font-weight: 700;
+  color: var(--red); letter-spacing: 0.5px;
+}
+.header-left .subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.header-left .user-badge {
+  display: inline-block; margin-left: 12px; padding: 2px 10px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; color: #fff; vertical-align: middle;
+}
+.admin-badge { background: var(--red); }
+.reviewer-badge { background: oklch(0.5 0.15 250); }
+.header-right { display: flex; gap: 8px; align-items: center; }
+.nav-tabs { display: flex; gap: 4px; }
+.nav-tab {
+  padding: 8px 20px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500;
+  cursor: pointer; border: 1px solid transparent; color: var(--text-muted);
+  font-family: var(--font-body); background: transparent; transition: all 0.15s;
+}
+.nav-tab.active { color: var(--red); border-color: var(--border); border-bottom-color: var(--bg); background: var(--bg); }
+.sync-status {
+  font-size: 11px; padding: 4px 10px; border-radius: 10px; font-weight: 500;
+}
+.sync-ok { background: oklch(0.94 0.04 160); color: var(--pass-green); }
+.sync-err { background: var(--red-bg); color: var(--red); }
+
+.main { max-width: 1200px; margin: 24px auto; padding: 0 32px; }
+.panel { display: none; }
+.panel.active { display: block; animation: fadeIn 0.25s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.upload-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius); padding: 36px;
+  text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px;
+  background: var(--card);
+}
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--red); background: var(--red-bg); }
+.upload-zone .icon { font-size: 32px; margin-bottom: 8px; }
+.upload-zone .label-text { font-weight: 600; font-size: 14px; }
+.upload-zone .upload-hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.upload-zone input[type="file"] { display: none; }
+.upload-zone.has-file { border-color: var(--pass-green); background: var(--pass-green-bg); }
+
+.import-actions { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.btn {
+  padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: var(--font-body); transition: all 0.15s;
+}
+.btn-primary { background: var(--red); color: #fff; border: none; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-outline { background: transparent; color: var(--red); border: 1.5px solid var(--red); }
+.btn-outline:hover { background: var(--red-bg); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.preview-box { display: none; margin-top: 16px; }
+.preview-box.show { display: block; }
+.preview-box .info { font-size: 13px; margin-bottom: 8px; color: var(--text-muted); }
+.preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.preview-table th, .preview-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+.preview-table th { font-weight: 600; color: var(--text-muted); font-size: 11px; }
+.preview-table td .url-cell { color: var(--text-muted); }
+.preview-table td .missing-title { color: var(--red); font-size: 11px; font-style: italic; }
+.more-hint { font-size: 11px; color: var(--text-muted); text-align: center; padding: 12px !important; }
+
+/* ======== Dashboard ======== */
+.stats-row { display: flex; gap: 16px; margin-bottom: 24px; }
+.stat-card {
+  flex: 1; background: var(--card); border-radius: var(--radius); padding: 20px;
+  box-shadow: var(--shadow); text-align: center;
+}
+.stat-value { font-family: var(--font-display); font-size: 36px; font-weight: 700; color: var(--red); }
+.stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.reviewer-progress { margin-bottom: 24px; }
+.reviewer-progress h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.reviewer-list { display: flex; gap: 12px; flex-wrap: wrap; }
+.reviewer-chip {
+  padding: 8px 14px; background: var(--card); border-radius: 20px;
+  font-size: 12px; border: 1px solid var(--border);
+  display: flex; align-items: center; gap: 6px;
+}
+.reviewer-chip .r-dot { width: 8px; height: 8px; border-radius: 50%; }
+.r-dot.on { background: var(--pass-green); }
+.r-dot.off { background: oklch(0.8 0.02 260); }
+
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 12px; }
+.entry-card {
+  background: var(--card); border-radius: var(--radius); padding: 16px;
+  cursor: pointer; box-shadow: var(--shadow); transition: all 0.15s;
+  border: 1.5px solid transparent; position: relative;
+}
+.entry-card:hover { border-color: var(--red); transform: translateY(-2px); }
+.entry-card .entry-index { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--red); margin-right: 8px; display: inline-block; min-width: 36px; }
+.entry-card .entry-status {
+  position: absolute; top: 12px; right: 12px; font-size: 11px; padding: 2px 8px;
+  border-radius: 4px; font-weight: 600;
+}
+.status-done { background: var(--pass-green-bg); color: var(--pass-green); }
+.status-pending { background: oklch(0.95 0.02 80); color: oklch(0.5 0.1 80); }
+.entry-card .entry-title { font-weight: 700; font-size: 16px; color: var(--text); margin-top: 2px; padding-right: 80px; line-height: 1.4; }
+.entry-card .entry-url { font-size: 11px; color: oklch(0.5 0.02 260 / 0.7); margin-top: 6px; word-break: break-all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.entry-card .entry-reviewers { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.entry-card .entry-reviewers .reviewer-score {
+  font-size: 11px; padding: 3px 8px; border-radius: 4px;
+  background: oklch(0.96 0.01 260); color: var(--text-muted);
+  font-weight: 500;
+}
+.entry-card .entry-reviewers .reviewer-score.scored { color: var(--pass-green); }
+.entry-card .entry-avg {
+  font-size: 13px; font-weight: 700; color: var(--text); margin-top: 6px;
+}
+.entry-card .entry-reviewer-count {
+  font-size: 11px; color: var(--text-muted); margin-top: 4px;
+}
+.admin-actions { margin-top: 8px; display: flex; gap: 6px; }
+.admin-actions button {
+  font-size: 10px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-muted); cursor: pointer; font-family: var(--font-body);
+  transition: all 0.15s;
+}
+.admin-actions button:hover { border-color: var(--red); color: var(--red); }
+.admin-actions button.danger:hover { border-color: var(--red); color: var(--red); background: var(--red-bg); }
+
+/* ======== Review Panel ======== */
+.review-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 900px) { .review-layout { grid-template-columns: 1fr; } }
+.video-panel, .scoring-panel { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+.video-panel iframe { width: 100%; height: 280px; border: none; border-radius: 8px; }
+.video-info { margin-top: 10px; font-size: 13px; }
+.video-info strong { color: var(--red); }
+.section-label { font-weight: 700; font-size: 14px; margin-bottom: 8px; color: var(--text); }
+
+.hard-item { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; font-size: 13px; border-bottom: 1px solid oklch(0.96 0.01 260); gap: 12px; }
+.hard-item:last-child { border-bottom: none; }
+.hard-label { flex: 1; line-height: 1.4; min-width: 0; }
+.hard-choices { display: flex; gap: 8px; flex-shrink: 0; }
+.hard-btn { padding: 5px 14px; border-radius: 6px; border: 1.5px solid oklch(0.85 0.02 260); font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font-body); background: var(--bg); color: var(--text-muted); transition: all 0.15s; white-space: nowrap; }
+.hard-btn:hover { transform: scale(1.04); }
+.pass-btn.active { background: var(--pass-green); border-color: var(--pass-green); color: #fff; box-shadow: 0 2px 6px oklch(0.55 0.15 160 / 0.3); }
+.fail-btn.active { background: var(--red); border-color: var(--red); color: #fff; box-shadow: 0 2px 6px oklch(0.52 0.22 20 / 0.3); }
+.hard-item.has-fail .hard-label { color: var(--red); font-weight: 700; }
+.hard-footer { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pass-all-btn { padding: 4px 12px; border-radius: 6px; border: 1px solid var(--pass-green); font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--font-body); background: var(--pass-green-bg); color: var(--pass-green); transition: all 0.15s; white-space: nowrap; }
+.pass-all-btn:hover { background: var(--pass-green); color: #fff; box-shadow: 0 2px 8px oklch(0.55 0.15 160 / 0.25); }
+
+.dim-item { padding: 10px 0; }
+.dim-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.dim-desc { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.5; }
+.dim-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.dim-weight { font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 2px 8px; border-radius: 4px; }
+.dim-score { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--red); min-width: 42px; text-align: right; }
+.slider-row { display: flex; align-items: center; gap: 10px; margin: 4px 0; }
+.slider-row input[type="range"] { flex: 1; accent-color: var(--red); height: 6px; }
+.notes-area { width: 100%; height: 80px; padding: 10px 12px; border-radius: 8px; border: 1px solid oklch(0.88 0.02 260); resize: vertical; font-family: var(--font-body); font-size: 13px; color: var(--text); background: var(--bg); line-height: 1.5; transition: border-color 0.15s; }
+.notes-area:focus { outline: none; border-color: var(--red); }
+.notes-area::placeholder { color: oklch(0.6 0.02 260); }
+.total-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 16px; background: var(--red-bg); border-radius: var(--radius); }
+.total-label { font-size: 14px; font-weight: 600; }
+.total-grade { font-size: 12px; color: var(--red); font-weight: 500; }
+.total-score { font-family: var(--font-display); font-size: 32px; font-weight: 700; color: var(--red); }
+.review-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* ======== Report ======== */
+.report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.report-table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--card); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.report-table th { background: var(--red-bg); color: var(--red); font-weight: 700; padding: 10px 12px; text-align: left; font-size: 11px; }
+.report-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.report-table tr:last-child td { border-bottom: none; }
+.fail-tag { color: var(--red); font-weight: 600; }
+.pass-tag { color: var(--pass-green); font-weight: 600; }
+
+.toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 20px; font-size: 13px; font-weight: 500; z-index: 999; pointer-events: none; animation: toastIn 0.3s ease; }
+.toast.info { background: oklch(0.18 0.01 260); color: #fff; }
+.toast.warn { background: var(--red); color: #fff; }
+@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <h2>外研社杯短视频大赛<br>AI 评审工作台</h2>
+    <div class="sub">多端协同评审系统</div>
+    <div class="role-tabs">
+      <button class="role-tab active" onclick="selectRole('admin')" id="tabAdmin">管理员</button>
+      <button class="role-tab" onclick="selectRole('reviewer')" id="tabReviewer">评委</button>
+    </div>
+    <input type="password" id="loginPassword" placeholder="管理员密码" style="display:block;">
+    <input type="text" id="loginName" placeholder="评委姓名（如：张老师）" style="display:none;">
+    <button class="login-btn" onclick="doLogin()">进入工作台</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div class="header">
+    <div class="header-left">
+      <h1>短视频大赛 AI 评审工作台</h1>
+      <div class="subtitle">主题：The Pride of China · 中国教育电视台·外研社杯</div>
+      <span id="userBadge">评委</span>
+    </div>
+    <div class="header-right">
+      <span class="sync-status sync-ok" id="syncStatus">已同步</span>
+      <div class="nav-tabs">
+        <button class="nav-tab active" onclick="switchTab('dashboard')">评审总览</button>
+        <button class="nav-tab" onclick="switchTab('input')" id="tabImport">作品管理</button>
+        <button class="nav-tab" onclick="switchTab('report')">评审报告</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="panel active" id="panel-dashboard">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-value" id="dashTotal">0</div><div class="stat-label">作品总数</div></div>
+        <div class="stat-card"><div class="stat-value" id="dashMyReviewed">0</div><div class="stat-label" id="dashMyReviewedLabel">我已评审</div></div>
+        <div class="stat-card"><div class="stat-value" id="dashAvgScore">--</div><div class="stat-label">我的均分</div></div>
+      </div>
+      <div class="reviewer-progress" id="reviewerProgressSection">
+        <h3>评审进度总览</h3>
+        <div class="reviewer-list" id="reviewerList"></div>
+      </div>
+      <div class="dash-grid" id="dashGrid"></div>
+    </div>
+
+    <div class="panel" id="panel-input">
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('excelFile').click()">
+        <div class="icon">📂</div>
+        <div class="label-text">点击上传或拖拽 Excel 文件到此区域</div>
+        <div class="upload-hint">Excel 需包含「链接」和「作品名称」两列 · 支持 .xlsx / .xls</div>
+        <input type="file" id="excelFile" accept=".xlsx,.xls" onchange="onFileSelected(this.files[0])">
+      </div>
+      <div class="import-actions">
+        <button class="btn btn-outline" onclick="loadDemo()">加载演示数据</button>
+        <button class="btn btn-primary" id="importBtn" disabled onclick="doImport()">确认导入</button>
+        <button class="btn btn-outline danger" id="resetBtn" onclick="doReset()" style="margin-left:auto; border-color:var(--red);">清空全部数据</button>
+      </div>
+      <div class="preview-box" id="previewBox">
+        <div class="info">共 <strong id="previewCount">0</strong> 个作品待导入 · 来自 <span id="uploadFileName">--</span></div>
+        <table class="preview-table" id="previewTableBody"></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-review">
+      <div class="review-layout">
+        <div class="video-panel" id="videoPanel"></div>
+        <div class="scoring-panel" id="scoringPanel" style="overflow-y:auto;max-height:85vh;"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-report">
+      <div class="report-header">
+        <h2 style="font-family:var(--font-display);font-size:20px;color:var(--red);">评审报告汇总</h2>
+        <button class="btn btn-primary" onclick="exportReport()">⬇ 一键导出评分</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="report-table" id="reportTable"></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let role = 'reviewer';
+let reviewerName = '';
+let allEntries = [];
+let currentReviewId = null;
+let pendingEntries = [];
+
+// ======================== 评分规则 ========================
+const DIM_KEYS = ['content', 'language', 'tech'];
+
+const SCORING_RULES = {
+  hardRequirements: [
+    { id: 'h1', label: '视频时长60s-180s，前后可浮动10s' },
+    { id: 'h2', label: '旁白语言须为团队成员配音的英文音频（不可使用人工智能语音、剪辑软件内字幕配音等）' },
+    { id: 'h3', label: '视频配有中英双语字幕' },
+    { id: 'h4', label: '参赛作品画面如有 AI 生成，须在片尾声明，并标明具体时间段' },
+    { id: 'h5', label: '画面稳定，音质清晰，不得添加其他水印或标识' }
+  ],
+  dimensions: [
+    { id: 'content', name: '视频内容', weight: 0.5, maxScore: 50, desc: '与主题"The Pride of China"的关联性，选题立意、叙述完整性/故事性、连贯性/创新性、职业与家国情怀' },
+    { id: 'language', name: '语言表达', weight: 0.3, maxScore: 30, desc: '语言准确度、口语表达的感染力、发音与语调' },
+    { id: 'tech', name: '制作技术', weight: 0.2, maxScore: 20, desc: '拍摄与剪辑技术、画面构图与运镜、音效与背景音乐' }
+  ]
+};
+
+function makeEmptyScores() {
+  const s = {};
+  DIM_KEYS.forEach(k => { s[k] = 0; });
+  return s;
+}
+
+function calcTotal(scores) {
+  return DIM_KEYS.reduce((sum, k) => sum + (scores[k] || 0), 0);
+}
+
+function getGrade(total) {
+  if (total >= 90) return 'A+ 优秀';
+  if (total >= 80) return 'A 良好';
+  if (total >= 70) return 'B 中等';
+  if (total >= 60) return 'C 及格';
+  if (total > 0) return 'D 不及格';
+  return '';
+}
+
+// ======================== 登录 & 身份 ========================
+function selectRole(r) {
+  role = r;
+  document.getElementById('tabAdmin').classList.toggle('active', r === 'admin');
+  document.getElementById('tabReviewer').classList.toggle('active', r === 'reviewer');
+  document.getElementById('loginPassword').style.display = r === 'admin' ? 'block' : 'none';
+  document.getElementById('loginName').style.display = r === 'reviewer' ? 'block' : 'none';
+}
+
+async function doLogin() {
+  if (role === 'admin') {
+    const pw = document.getElementById('loginPassword').value;
+    if (!pw) { showToast('请输入管理员密码', 'warn'); return; }
+    try {
+      const res = await fetch(API + '/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+      const data = await res.json();
+      if (!data.ok || data.role !== 'admin') { showToast('密码错误', 'warn'); return; }
+      reviewerName = 'admin';
+      role = 'admin';
+    } catch (e) {
+      // 离线模式：管理员密码 local 验证
+      if (pw === 'admin2026') { reviewerName = 'admin'; role = 'admin'; }
+      else { showToast('离线模式：请输入正确密码 admin2026', 'warn'); return; }
+    }
+  } else {
+    const name = document.getElementById('loginName').value.trim();
+    if (!name) { showToast('请输入评委姓名', 'warn'); return; }
+    reviewerName = name;
+    role = 'reviewer';
+  }
+
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+
+  const badge = document.getElementById('userBadge');
+  if (role === 'admin') {
+    badge.textContent = '管理员';
+    badge.className = 'user-badge admin-badge';
+    document.getElementById('tabImport').style.display = '';
+    document.getElementById('resetBtn').style.display = '';
+    document.getElementById('dashMyReviewedLabel').textContent = '整体进度';
+    document.getElementById('reviewerProgressSection').style.display = '';
+  } else {
+    badge.textContent = '评委: ' + reviewerName;
+    badge.className = 'user-badge reviewer-badge';
+    document.getElementById('tabImport').style.display = 'none';
+    document.getElementById('resetBtn').style.display = 'none';
+    document.getElementById('dashMyReviewedLabel').textContent = '我已评审';
+    document.getElementById('reviewerProgressSection').style.display = 'none';
+  }
+
+  await loadEntries();
+}
+
+// ======================== 同步（支持离线模式） ========================
+function getStorageKey() { return 'review_wb_data_' + (role === 'admin' ? 'admin' : reviewerName); }
+
+function loadFromStorage() {
+  try { const d = localStorage.getItem('review_wb_shared'); if (d) return JSON.parse(d); } catch(e) {}
+  return null;
+}
+function saveToStorage(data) {
+  localStorage.setItem('review_wb_shared', JSON.stringify(data));
+}
+function getDemoData() {
+  return { entries: [
+    { id: 1, url: 'https://p.bokecc.com/qrplay.bo?uid=BEFB8EFC24085B0B&vid=73AF2A887BFFD7B4F3342D97BB1D6DF8', title: 'Skills Connect the World.', index: 1, reviews: [] },
+    { id: 2, url: 'https://www.bilibili.com/video/BV1xx411c7mD', title: 'The Pride of China · 匠心传承', index: 2, reviews: [] },
+    { id: 3, url: 'https://v.qq.com/x/page/d0932qwerty.html', title: '中国智造：从制造到创造', index: 3, reviews: [] },
+    { id: 4, url: 'https://www.bilibili.com/video/BV1Es411S7zG', title: '文化自信：汉服之美', index: 4, reviews: [] },
+    { id: 5, url: 'https://v.qq.com/x/page/x0951abcdef.html', title: '职业技能：工匠精神与中国制造', index: 5, reviews: [] }
+  ]};
+}
+
+let useOffline = false;
+
+async function loadEntries() {
+  try {
+    const params = new URLSearchParams({ role, reviewer: reviewerName });
+    const res = await fetch(API + '/api/entries?' + params.toString());
+    const data = await res.json();
+    allEntries = data.entries;
+    useOffline = false;
+    // 同时同步到 localStorage 作为备份
+    if (role === 'admin') saveToStorage(data);
+    updateSyncStatus(true);
+  } catch (e) {
+    // 离线模式：从 localStorage 或演示数据加载
+    useOffline = true;
+    let data = role === 'admin' ? loadFromStorage() : null;
+    if (!data) data = getDemoData();
+
+    if (role === 'reviewer') {
+      allEntries = data.entries.map(e => {
+        const myReview = e.reviews.filter(r => r.reviewer === reviewerName);
+        return { ...e, reviews: myReview };
+      });
+    } else {
+      allEntries = data.entries;
+    }
+    updateSyncStatus(false);
+  }
+  renderDashboard();
+  renderReport();
+}
+
+async function saveReview(entryId) {
+  if (useOffline) {
+    // 离线模式：保存到 localStorage
+    let data = loadFromStorage() || getDemoData();
+    const entry = data.entries.find(e => e.id === entryId);
+    if (!entry) return;
+    const myReview = getLocalReview();
+    if (!myReview) return;
+    const idx = entry.reviews.findIndex(r => r.reviewer === reviewerName);
+    const reviewData = { reviewer: reviewerName, scores: myReview.scores, hardChecks: myReview.hardChecks, notes: myReview.notes || '', time: new Date().toISOString() };
+    if (idx >= 0) entry.reviews[idx] = reviewData;
+    else entry.reviews.push(reviewData);
+    saveToStorage(data);
+    allEntries = data.entries;
+    updateSyncStatus(false);
+    renderDashboard();
+    renderReport();
+    return;
+  }
+
+  const entry = allEntries.find(e => e.id === entryId);
+  if (!entry) return;
+  const myReview = entry.reviews.find(r => r.reviewer === reviewerName) || {};
+  const body = {
+    reviewer: reviewerName,
+    scores: myReview.scores || makeEmptyScores(),
+    hardChecks: myReview.hardChecks || {},
+    notes: myReview.notes || ''
+  };
+  try {
+    const res = await fetch(API + '/api/entries/' + entryId + '/review', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    await res.json();
+    await loadEntries();
+    updateSyncStatus(true);
+  } catch (e) {
+    updateSyncStatus(false);
+    showToast('保存失败，请检查网络', 'warn');
+  }
+}
+
+function updateSyncStatus(ok) {
+  const el = document.getElementById('syncStatus');
+  if (useOffline) { el.textContent = '离线模式'; el.className = 'sync-status sync-err'; }
+  else { el.textContent = ok ? '已同步' : '同步失败'; el.className = 'sync-status ' + (ok ? 'sync-ok' : 'sync-err'); }
+}
+
+// ======================== Excel 导入 ========================
+function onFileSelected(file) {
+  if (!file) return;
+  document.getElementById('uploadFileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      if (!json || json.length === 0) { showToast('Excel 文件为空', 'warn'); return; }
+
+      let headerRow = -1, urlCol = -1, titleCol = -1;
+      const urlKeys = ['链接','视频链接','作品链接','播放链接','视频地址','url','link','地址'];
+      const titleKeys = ['作品名称','作品标题','视频名称','视频标题','名称','标题','title','作品','片名'];
+
+      function headerMatch(cell, keys) {
+        const c = cell.trim().toLowerCase(); if (!c) return false;
+        if (keys.some(k => c === k.toLowerCase())) return true;
+        if (keys.some(k => c.startsWith(k.toLowerCase() + '(') || c.startsWith(k.toLowerCase() + '\uff08'))) return true;
+        if (/^https?:\/\//i.test(c)) return false;
+        if (/^\d+$/.test(c)) return false;
+        if (keys.some(k => c.includes(k.toLowerCase()))) return true;
+        return false;
+      }
+
+      for (let i = 0; i < Math.min(json.length, 6); i++) {
+        const row = json[i]; if (!row) continue;
+        let bu = -1, bt = -1;
+        for (let j = 0; j < row.length; j++) {
+          const cell = String(row[j] || '');
+          if (bu < 0 && headerMatch(cell, urlKeys)) bu = j;
+          if (bt < 0 && headerMatch(cell, titleKeys)) bt = j;
+        }
+        if (bu >= 0 && bt >= 0 && bu !== bt) { headerRow = i; urlCol = bu; titleCol = bt; break; }
+      }
+
+      if (headerRow < 0) {
+        for (let i = 0; i < Math.min(json.length, 20); i++) {
+          const row = json[i]; if (!row) continue;
+          for (let j = 0; j < row.length; j++) {
+            const cell = String(row[j] || '').trim();
+            if (urlCol < 0 && /^https?:\/\//i.test(cell)) urlCol = j;
+            if (titleCol < 0 && j !== urlCol && cell && !/^https?:\/\//i.test(cell) && cell.length > 1) titleCol = j;
+          }
+          if (urlCol >= 0 && titleCol >= 0) { headerRow = -1; break; }
+        }
+      }
+
+      if (urlCol < 0 || titleCol < 0 || urlCol === titleCol) {
+        showToast('未识别到列，请确保有链接列和标题列', 'warn'); return;
+      }
+
+      pendingEntries = [];
+      const startRow = headerRow >= 0 ? headerRow + 1 : 0;
+      for (let i = startRow; i < json.length; i++) {
+        const row = json[i]; if (!row) continue;
+        const url = String(row[urlCol] || '').trim();
+        const title = String(row[titleCol] || '').trim();
+        if (!url || !url.startsWith('http')) continue;
+        if (!title || /^https?:\/\//i.test(title)) { pendingEntries.push({ url, title: '' }); }
+        else { pendingEntries.push({ url, title }); }
+      }
+
+      if (pendingEntries.length === 0) { showToast('未找到有效链接', 'warn'); return; }
+      showPreview();
+      document.getElementById('uploadZone').classList.add('has-file');
+    } catch (err) { showToast('Excel 解析失败', 'warn'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showPreview() {
+  const box = document.getElementById('previewBox');
+  box.classList.add('show');
+  document.getElementById('importBtn').disabled = false;
+  document.getElementById('previewCount').textContent = pendingEntries.length;
+  const table = document.getElementById('previewTableBody');
+  const rows = pendingEntries.slice(0, 12);
+  table.innerHTML = '<thead><tr><th>#</th><th>作品名称</th><th>视频链接</th></tr></thead><tbody>' +
+    rows.map((e, i) => '<tr><td>' + (i + 1) + '</td><td>' + (e.title || '<span class="missing-title">\u26a0 未识别</span>') + '</td><td><span class="url-cell">' + (e.url.length > 55 ? e.url.slice(0, 55) + '...' : e.url) + '</span></td></tr>').join('') +
+    (pendingEntries.length > 12 ? '<tr><td colspan="3" class="more-hint">... 还有 ' + (pendingEntries.length - 12) + ' 个作品</td></tr>' : '') +
+    '</tbody>';
+}
+
+async function doImport() {
+  const pw = document.getElementById('loginPassword').value;
+
+  if (useOffline) {
+    // 离线模式：直接添加到 localStorage
+    let data = loadFromStorage() || getDemoData();
+    const startId = data.entries.length > 0 ? Math.max(...data.entries.map(e => e.id)) + 1 : 1;
+    const added = pendingEntries.map((e, i) => ({
+      id: startId + i, url: e.url, title: e.title || '',
+      index: data.entries.length + i + 1, reviews: []
+    }));
+    data.entries.push(...added);
+    saveToStorage(data);
+    allEntries = data.entries;
+    pendingEntries = [];
+    document.getElementById('previewBox').classList.remove('show');
+    document.getElementById('importBtn').disabled = true;
+    document.getElementById('uploadZone').classList.remove('has-file');
+    document.getElementById('excelFile').value = '';
+    switchTab('dashboard');
+    renderDashboard();
+    showToast('离线模式 · 成功导入 ' + added.length + ' 个作品');
+    return;
+  }
+  try {
+    const res = await fetch(API + '/api/entries/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, entries: pendingEntries })
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, 'warn'); return; }
+    pendingEntries = [];
+    document.getElementById('previewBox').classList.remove('show');
+    document.getElementById('importBtn').disabled = true;
+    document.getElementById('uploadZone').classList.remove('has-file');
+    document.getElementById('excelFile').value = '';
+    await loadEntries();
+    switchTab('dashboard');
+    showToast('成功导入 ' + data.count + ' 个作品');
+  } catch (e) { showToast('导入失败', 'warn'); }
+}
+
+function loadDemo() {
+  pendingEntries = [
+    { url: 'https://p.bokecc.com/qrplay.bo?uid=BEFB8EFC24085B0B&vid=73AF2A887BFFD7B4F3342D97BB1D6DF8', title: 'Skills Connect the World.' },
+    { url: 'https://www.bilibili.com/video/BV1xx411c7mD', title: 'The Pride of China · 匠心传承' },
+    { url: 'https://v.qq.com/x/page/d0932qwerty.html', title: '中国智造：从制造到创造' },
+    { url: 'https://www.bilibili.com/video/BV1Es411S7zG', title: '文化自信：汉服之美' },
+    { url: 'https://v.qq.com/x/page/x0951abcdef.html', title: '职业教育：技能改变命运' }
+  ];
+  showPreview();
+  document.getElementById('uploadZone').classList.add('has-file');
+  document.getElementById('uploadFileName').textContent = '演示数据';
+}
+
+async function doReset() {
+  if (!confirm('确定清空全部作品和评审数据？此操作不可恢复。')) return;
+  const pw = document.getElementById('loginPassword').value;
+  await fetch(API + '/api/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw })
+  });
+  await loadEntries();
+  showToast('已清空全部数据');
+}
+
+// ======================== 导航 ========================
+function switchTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const idx = { dashboard: 1, input: 2, report: 3 }[tab];
+  if (idx) document.querySelector('.nav-tab:nth-child(' + idx + ')').classList.add('active');
+  const panel = document.getElementById('panel-' + tab);
+  if (panel) {
+    panel.classList.add('active');
+    if (tab === 'dashboard') renderDashboard();
+    if (tab === 'report') renderReport();
+  }
+}
+
+// ======================== 仪表盘 ========================
+function renderDashboard() {
+  const entries = allEntries;
+  document.getElementById('dashTotal').textContent = entries.length;
+
+  let myReviewed = 0, myScores = [];
+  entries.forEach(e => {
+    const review = e.reviews.find(r => r.reviewer === reviewerName);
+    if (review && review.scores && calcTotal(review.scores) > 0) {
+      myReviewed++;
+      myScores.push(calcTotal(review.scores));
+    }
+  });
+  document.getElementById('dashMyReviewed').textContent = myReviewed + ' / ' + entries.length;
+  document.getElementById('dashAvgScore').textContent = myScores.length ? Math.round(myScores.reduce((a, b) => a + b, 0) / myScores.length) : '--';
+
+  // 评审进度总览（仅管理员可见所有评委）
+  if (role === 'admin') {
+    const allReviewers = new Set();
+    const reviewerStats = {};
+    entries.forEach(e => {
+      e.reviews.forEach(r => {
+        allReviewers.add(r.reviewer);
+        if (!reviewerStats[r.reviewer]) reviewerStats[r.reviewer] = { done: 0, total: entries.length };
+        if (r.scores && calcTotal(r.scores) > 0) reviewerStats[r.reviewer].done++;
+      });
+    });
+
+    document.getElementById('reviewerList').innerHTML = Array.from(allReviewers).map(name => {
+      const s = reviewerStats[name];
+      const isMe = name === 'admin';
+      return '<div class="reviewer-chip" style="' + (isMe ? 'border-color:var(--red);' : '') + '">' +
+        '<span class="r-dot ' + (s && s.done > 0 ? 'on' : 'off') + '"></span>' +
+        name + (isMe ? ' (我)' : '') + ' · ' + s.done + '/' + s.total +
+        '</div>';
+    }).join('');
+  }
+
+  // 作品卡片
+  const grid = document.getElementById('dashGrid');
+  grid.innerHTML = entries.map(e => {
+    const myReview = e.reviews.find(r => r.reviewer === reviewerName);
+    const hasScored = myReview && myReview.scores && calcTotal(myReview.scores) > 0;
+
+    let reviewerBadges = '';
+    if (role === 'admin') {
+      // 管理员：看所有评委的评分
+      const uniqueReviewers = new Set();
+      e.reviews.forEach(r => {
+        if (!uniqueReviewers.has(r.reviewer)) {
+          uniqueReviewers.add(r.reviewer);
+          const hasScore = r.scores && calcTotal(r.scores) > 0;
+          const total = hasScore ? calcTotal(r.scores) : 0;
+          reviewerBadges += '<span class="reviewer-score' + (hasScore ? ' scored' : '') + '">' +
+            r.reviewer + (hasScore ? ' ' + total + '分' : ' 未评') + '</span>';
+        }
+      });
+
+      // 管理员看均值
+      const scoredReviews = e.reviews.filter(r => r.scores && calcTotal(r.scores) > 0);
+      const avg = scoredReviews.length >= 2
+        ? Math.round(scoredReviews.reduce((s, r) => s + calcTotal(r.scores), 0) / scoredReviews.length)
+        : null;
+
+      return '<div class="entry-card" onclick="openReview(' + e.id + ')">' +
+        '<span class="entry-index">#' + e.index + '</span>' +
+        '<span class="entry-status ' + (hasScored ? 'status-done' : 'status-pending') + '">' + (hasScored ? '已评审' : '待评审') + '</span>' +
+        '<div class="entry-title">' + e.title + '</div>' +
+        '<div class="entry-url" title="' + e.url + '">' + e.url + '</div>' +
+        '<div class="entry-reviewers">' + reviewerBadges + '</div>' +
+        (avg !== null ? '<div class="entry-avg">均分: ' + avg + ' 分 (' + scoredReviews.length + '人评审)</div>' : '') +
+        '<div class="admin-actions" onclick="event.stopPropagation()"><button onclick="deleteEntry(' + e.id + ')">删除</button></div>' +
+        '</div>';
+    } else {
+      // 评委：只看自己的评分 + 总评审人数
+      reviewerBadges = hasScored
+        ? '<span class="reviewer-score scored">我: ' + calcTotal(myReview.scores) + '分</span>'
+        : '<span class="reviewer-score">我: 未评</span>';
+      const totalReviewers = e.totalReviewers || e.reviewerNames ? (e.reviewerNames || []).length : e.reviews.length;
+
+      return '<div class="entry-card" onclick="openReview(' + e.id + ')">' +
+        '<span class="entry-index">#' + e.index + '</span>' +
+        '<span class="entry-status ' + (hasScored ? 'status-done' : 'status-pending') + '">' + (hasScored ? '已评审' : '待评审') + '</span>' +
+        '<div class="entry-title">' + e.title + '</div>' +
+        '<div class="entry-url" title="' + e.url + '">' + e.url + '</div>' +
+        '<div class="entry-reviewers">' + reviewerBadges + '</div>' +
+        (totalReviewers > 0 ? '<div class="entry-reviewer-count">共 ' + totalReviewers + ' 位评委参与</div>' : '') +
+        '</div>';
+    }
+  }).join('');
+}
+
+async function deleteEntry(id) {
+  if (!confirm('确定删除作品 #' + id + '？')) return;
+  const pw = document.getElementById('loginPassword').value;
+  await fetch(API + '/api/entries/' + id + '?password=' + encodeURIComponent(pw), { method: 'DELETE' });
+  await loadEntries();
+  showToast('已删除');
+}
+
+// ======================== 评审 ========================
+function getMyReview(entry) {
+  let review = entry.reviews.find(r => r.reviewer === reviewerName);
+  if (!review) review = { reviewer: reviewerName, scores: makeEmptyScores(), hardChecks: {}, notes: '' };
+  return review;
+}
+
+async function openReview(id) {
+  currentReviewId = id;
+  await loadEntries();
+  const entry = allEntries.find(e => e.id === id);
+  if (!entry) return;
+  const review = getMyReview(entry);
+  renderReviewPanel(entry, review);
+  switchTab('review');
+}
+
+function renderReviewPanel(entry, review) {
+  const e = entry;
+  const scores = review.scores || makeEmptyScores();
+  const hardChecks = review.hardChecks || {};
+  const notes = review.notes || '';
+  const total = calcTotal(scores);
+  const grade = getGrade(total);
+
+  document.getElementById('videoPanel').innerHTML =
+    '<div style="position:relative;padding-bottom:56.25%;">' +
+      '<iframe src="' + e.url + '" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;border-radius:8px;"></iframe>' +
+    '</div>' +
+    '<div class="video-info"><span><strong>#' + e.index + '</strong> ' + e.title + '</span></div>';
+
+  const hardReqCount = SCORING_RULES.hardRequirements.length;
+
+  document.getElementById('scoringPanel').innerHTML =
+    '<div class="scoring-section">' +
+      '<div class="section-label">\u26a0 硬性要求审核（每项必须判断）</div>' +
+      SCORING_RULES.hardRequirements.map(h => {
+        const val = hardChecks[h.id];
+        const passActive = val === true;
+        const failActive = val === false;
+        return '<div class="hard-item' + (failActive ? ' has-fail' : '') + '" id="hard-' + h.id + '">' +
+          '<div class="hard-label">' + h.label + '</div>' +
+          '<div class="hard-choices">' +
+          '<button class="hard-btn pass-btn' + (passActive ? ' active' : '') + '" onclick="setHardCheck(\'' + h.id + '\', true)">\u2713 通过</button>' +
+          '<button class="hard-btn fail-btn' + (failActive ? ' active' : '') + '" onclick="setHardCheck(\'' + h.id + '\', false)">\u2715 未通过</button>' +
+          '</div></div>';
+      }).join('') +
+      '<div class="hard-footer">' +
+        '<span style="font-size:11px;color:var(--text-muted);">已判断 <strong id="hardCheckedCount" style="color:var(--text);">' + Object.keys(hardChecks).length + '</strong> / ' + hardReqCount + ' 项</span>' +
+        '<button class="pass-all-btn" onclick="passAllHardChecks()">\u2713 一键通过</button>' +
+      '</div>' +
+    '</div>' +
+
+    SCORING_RULES.dimensions.map(d => '' +
+    '<div class="scoring-section">' +
+      '<div class="dim-item">' +
+        '<div class="dim-header">' +
+          '<div class="dim-name">' + d.name + '<span class="dim-weight">权重 ' + Math.round(d.weight * 100) + '% · 满分 ' + d.maxScore + '</span></div>' +
+          '<div class="dim-score" id="dimScore-' + d.id + '">' + (scores[d.id] || 0) + '</div>' +
+        '</div>' +
+        '<div class="dim-desc">' + d.desc + '</div>' +
+        '<div class="slider-row">' +
+          '<span style="font-size:11px;color:var(--text-muted);">0</span>' +
+          '<input type="range" min="0" max="' + d.maxScore + '" value="' + (scores[d.id] || 0) + '" step="1" oninput="updateScoreLocal(\'' + d.id + '\', this.value)" id="slider-' + d.id + '">' +
+          '<span style="font-size:11px;color:var(--text-muted);">' + d.maxScore + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>').join('') +
+
+    '<div class="scoring-section" style="margin-top:4px;">' +
+      '<div class="section-label">📝 评审备注（可选）</div>' +
+      '<textarea class="notes-area" id="reviewNotes" placeholder="写下对该作品的整体评价、亮点或改进建议……" onchange="localNotes(this.value)">' + notes + '</textarea>' +
+    '</div>' +
+
+    '<div class="total-bar" id="totalBar">' +
+      '<div><div class="total-label">综合得分</div><div class="total-grade">' + grade + '</div></div>' +
+      '<div class="total-score">' + (total || '--') + '</div>' +
+    '</div>' +
+
+    '<div class="review-actions">' +
+      '<button class="btn btn-outline" onclick="closeReview()">返回列表</button>' +
+      '<button class="btn btn-outline" onclick="resetMyReview()">重置</button>' +
+      '<button class="btn btn-primary" onclick="submitReview()">保存评审</button>' +
+    '</div>';
+}
+
+// ======================== 本地评审操作（暂存内存，保存时才提交） ========================
+let localReviewCache = {};
+function getLocalReview() {
+  if (!currentReviewId) return null;
+  if (!localReviewCache[currentReviewId]) {
+    const entry = allEntries.find(e => e.id === currentReviewId);
+    localReviewCache[currentReviewId] = entry ? JSON.parse(JSON.stringify(getMyReview(entry))) : null;
+  }
+  return localReviewCache[currentReviewId];
+}
+
+function setHardCheck(id, value) {
+  const review = getLocalReview();
+  if (!review) return;
+  if (review.hardChecks[id] === value) { delete review.hardChecks[id]; }
+  else { review.hardChecks[id] = value; }
+  const entry = allEntries.find(e => e.id === currentReviewId);
+  renderReviewPanel(entry, review);
+}
+
+function passAllHardChecks() {
+  const review = getLocalReview();
+  if (!review) return;
+  SCORING_RULES.hardRequirements.forEach(h => { review.hardChecks[h.id] = true; });
+  const entry = allEntries.find(e => e.id === currentReviewId);
+  renderReviewPanel(entry, review);
+  showToast('已一键标记全部 ' + SCORING_RULES.hardRequirements.length + ' 项为「通过」');
+}
+
+function updateScoreLocal(dimId, val) {
+  const review = getLocalReview();
+  if (!review) return;
+  review.scores[dimId] = parseInt(val);
+  document.getElementById('dimScore-' + dimId).textContent = val;
+  const total = calcTotal(review.scores);
+  const grade = getGrade(total);
+  document.getElementById('totalBar').innerHTML =
+    '<div><div class="total-label">综合得分</div><div class="total-grade">' + grade + '</div></div>' +
+    '<div class="total-score">' + (total || '--') + '</div>';
+}
+
+function localNotes(val) {
+  const review = getLocalReview();
+  if (review) review.notes = val.trim();
+}
+
+async function submitReview() {
+  const review = getLocalReview();
+  if (!review) return;
+  const unchecked = SCORING_RULES.hardRequirements.filter(h =>
+    review.hardChecks[h.id] !== true && review.hardChecks[h.id] !== false
+  );
+  if (unchecked.length > 0) {
+    showToast('硬性条件判断未完成，请确认所有 ' + SCORING_RULES.hardRequirements.length + ' 项', 'warn');
+    return;
+  }
+  const total = calcTotal(review.scores);
+  if (total === 0) { showToast('请至少对一个维度打分', 'warn'); return; }
+
+  try {
+    await fetch(API + '/api/entries/' + currentReviewId + '/review', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reviewer: reviewerName,
+        scores: review.scores,
+        hardChecks: review.hardChecks,
+        notes: review.notes || ''
+      })
+    });
+    delete localReviewCache[currentReviewId];
+    await loadEntries();
+    switchTab('dashboard');
+    showToast('评审已保存 · 综合得分: ' + total + ' 分');
+  } catch (e) {
+    showToast('保存失败，请检查网络', 'warn');
+  }
+}
+
+function resetMyReview() {
+  if (!confirm('确定重置当前评审？所有评分将清空。')) return;
+  localReviewCache[currentReviewId] = {
+    reviewer: reviewerName,
+    scores: makeEmptyScores(),
+    hardChecks: {},
+    notes: ''
+  };
+  const entry = allEntries.find(e => e.id === currentReviewId);
+  renderReviewPanel(entry, localReviewCache[currentReviewId]);
+}
+
+function closeReview() {
+  delete localReviewCache[currentReviewId];
+  switchTab('dashboard');
+}
+
+// ======================== 报告 ========================
+function renderReport() {
+  const entries = allEntries;
+  const table = document.getElementById('reportTable');
+
+  const rows = entries.map(e => {
+    const myReview = e.reviews.find(r => r.reviewer === reviewerName);
+
+    if (role === 'admin') {
+      // 管理员看所有评委的评审
+      const reviews = e.reviews.filter(r => r.scores && calcTotal(r.scores) > 0);
+      const totalScores = reviews.map(r => calcTotal(r.scores));
+      const avg = totalScores.length >= 2
+        ? Math.round(totalScores.reduce((a, b) => a + b, 0) / totalScores.length)
+        : (totalScores[0] || 0);
+      const grade = getGrade(avg);
+
+      let hardStatus = '--';
+      if (reviews.length > 0) {
+        const allChecks = reviews.map(r => r.hardChecks || {});
+        const allPass = allChecks.every(c => Object.values(c).every(v => v === true));
+        const failList = [];
+        allChecks.forEach(c => {
+          Object.entries(c).forEach(([k, v]) => { if (v === false) failList.push(k); });
+        });
+        hardStatus = allPass && failList.length === 0
+          ? '<span class="pass-tag">全部通过</span>'
+          : '<span class="fail-tag">' + failList.length + ' 项未通过</span>';
+      }
+
+      const reviewerNames = reviews.map(r => r.reviewer).join(', ') || '--';
+      const first = reviews[0];
+      let scoreDetail = first
+        ? '内容' + (first.scores.content || 0) + ' | 语言' + (first.scores.language || 0) + ' | 制作' + (first.scores.tech || 0)
+        : '--';
+      if (reviews.length > 1) scoreDetail += ' (均值:' + avg + ')';
+
+      return '<tr>' +
+        '<td>' + e.index + '</td>' +
+        '<td>' + e.title + '</td>' +
+        '<td>' + scoreDetail + '</td>' +
+        '<td>' + (avg || '--') + '</td>' +
+        '<td>' + grade + '</td>' +
+        '<td>' + hardStatus + '</td>' +
+        '<td>' + reviewerNames + '</td>' +
+        '</tr>';
+    } else {
+      // 评委只看自己的
+      const hasScored = myReview && myReview.scores && calcTotal(myReview.scores) > 0;
+      const total = hasScored ? calcTotal(myReview.scores) : 0;
+      const grade = hasScored ? getGrade(total) : '--';
+
+      let hardStatus = '--';
+      if (hasScored) {
+        const checks = myReview.hardChecks || {};
+        const allPass = Object.values(checks).every(v => v === true);
+        const failCount = Object.values(checks).filter(v => v === false).length;
+        hardStatus = allPass && failCount === 0
+          ? '<span class="pass-tag">全部通过</span>'
+          : '<span class="fail-tag">' + failCount + ' 项未通过</span>';
+      }
+
+      let scoreDetail = hasScored
+        ? '内容' + (myReview.scores.content || 0) + ' | 语言' + (myReview.scores.language || 0) + ' | 制作' + (myReview.scores.tech || 0)
+        : '--';
+
+      return '<tr>' +
+        '<td>' + e.index + '</td>' +
+        '<td>' + e.title + '</td>' +
+        '<td>' + scoreDetail + '</td>' +
+        '<td>' + (total || '--') + '</td>' +
+        '<td>' + grade + '</td>' +
+        '<td>' + hardStatus + '</td>' +
+        '<td>' + (hasScored ? '已评' : '未评') + '</td>' +
+        '</tr>';
+    }
+  }).join('');
+
+  table.innerHTML = '<thead><tr>' +
+    '<th>#</th><th>作品名称</th><th>分项分数</th><th>总分</th><th>档位</th><th>硬性审核</th><th>评审状态</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody>';
+}
+
+async function exportReport() {
+  const entries = allEntries;
+
+  if (role === 'admin') {
+    // 管理员导出：所有评委的完整数据
+    const rows = entries.map(e => {
+      const reviews = e.reviews.filter(r => r.scores && calcTotal(r.scores) > 0);
+      const totalScores = reviews.map(r => calcTotal(r.scores));
+      const avg = totalScores.length >= 2
+        ? Math.round(totalScores.reduce((a, b) => a + b, 0) / totalScores.length)
+        : (totalScores[0] || 0);
+      const grade = getGrade(avg);
+
+      let failItems = '';
+      reviews.forEach(r => {
+        Object.entries(r.hardChecks || {}).forEach(([k, v]) => { if (v === false) failItems += k + ';'; });
+      });
+
+      const reviewerDetails = reviews.map(r => r.reviewer + ':' + calcTotal(r.scores)).join(' | ');
+
+      return {
+        序号: e.index,
+        作品名称: e.title,
+        链接: e.url,
+        视频内容: reviews[0] ? (reviews[0].scores.content || 0) : 0,
+        语言表达: reviews[0] ? (reviews[0].scores.language || 0) : 0,
+        制作技术: reviews[0] ? (reviews[0].scores.tech || 0) : 0,
+        均分: avg,
+        档位: grade,
+        评审人数: reviews.length,
+        评审详情: reviewerDetails,
+        硬性未通过: failItems || '无',
+        备注: reviews.map(r => r.notes || '').join(' | ')
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '评审报告');
+    XLSX.writeFile(wb, '短视频大赛评审报告_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    showToast('评审报告已下载');
+  } else {
+    // 评委导出：仅自己的评审数据
+    const rows = entries.map(e => {
+      const myReview = e.reviews.find(r => r.reviewer === reviewerName);
+      const hasScored = myReview && myReview.scores && calcTotal(myReview.scores) > 0;
+      const total = hasScored ? calcTotal(myReview.scores) : 0;
+      const grade = hasScored ? getGrade(total) : '--';
+
+      let failItems = '';
+      if (hasScored) {
+        Object.entries(myReview.hardChecks || {}).forEach(([k, v]) => { if (v === false) failItems += k + ';'; });
+      }
+
+      return {
+        序号: e.index,
+        作品名称: e.title,
+        链接: e.url,
+        视频内容: hasScored ? (myReview.scores.content || 0) : 0,
+        语言表达: hasScored ? (myReview.scores.language || 0) : 0,
+        制作技术: hasScored ? (myReview.scores.tech || 0) : 0,
+        总分: total,
+        档位: grade,
+        硬性未通过: failItems || '无',
+        备注: hasScored ? (myReview.notes || '') : ''
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '我的评审');
+    XLSX.writeFile(wb, '短视频大赛_我的评审_' + reviewerName + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    showToast('评审报告已下载');
+  }
+}
+
+// ======================== 通用 ========================
+function showToast(msg, type) {
+  type = type || 'info';
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 2200);
+}
+
+// ======================== 拖拽上传 ========================
+var uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', function(e) { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', function() { uploadZone.classList.remove('drag-over'); });
+uploadZone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  var file = e.dataTransfer.files[0];
+  if (file) {
+    document.getElementById('excelFile').files = e.dataTransfer.files;
+    onFileSelected(file);
+  }
+});
+</script>
+</body>
+</html>
