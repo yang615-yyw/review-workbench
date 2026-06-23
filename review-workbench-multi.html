@@ -238,6 +238,27 @@ body {
 .fail-tag { color: var(--red); font-weight: 600; }
 .pass-tag { color: var(--pass-green); font-weight: 600; }
 
+/* ======== Assignment Panel ======== */
+.assign-section { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); margin-bottom: 16px; }
+.assign-section h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
+.assign-input-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.assign-input-row input[type="text"] { flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); font-family: var(--font-body); font-size: 13px; background: var(--bg); }
+.assign-input-row input:focus { outline: none; border-color: var(--red); }
+.assign-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.assign-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.assign-table th { background: var(--bg); color: var(--text-muted); font-weight: 600; padding: 8px 10px; text-align: left; font-size: 11px; border-bottom: 1px solid var(--border); }
+.assign-table td { padding: 8px 10px; border-bottom: 1px solid oklch(0.96 0.01 260); }
+.assign-table tr:hover { background: var(--bg); }
+.assign-tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 4px; background: oklch(0.94 0.04 250); color: oklch(0.4 0.12 250); margin-right: 4px; font-weight: 500; }
+.assign-tag.none { background: oklch(0.96 0.01 260); color: var(--text-muted); }
+.assign-summary { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.assign-summary-card { background: var(--bg); border-radius: 8px; padding: 12px 16px; border: 1px solid var(--border); min-width: 140px; }
+.assign-summary-card .name { font-size: 13px; font-weight: 700; color: var(--text); }
+.assign-summary-card .count { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.assign-summary-card .clear-btn { font-size: 10px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--red); background: transparent; color: var(--red); cursor: pointer; margin-top: 6px; font-family: var(--font-body); }
+.assign-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.assign-toolbar select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); font-family: var(--font-body); font-size: 12px; background: var(--bg); }
+
 .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 20px; font-size: 13px; font-weight: 500; z-index: 999; pointer-events: none; animation: toastIn 0.3s ease; }
 .toast.info { background: oklch(0.18 0.01 260); color: #fff; }
 .toast.warn { background: var(--red); color: #fff; }
@@ -272,6 +293,7 @@ body {
       <div class="nav-tabs">
         <button class="nav-tab active" onclick="switchTab('dashboard')">评审总览</button>
         <button class="nav-tab" onclick="switchTab('input')" id="tabImport">作品管理</button>
+        <button class="nav-tab" onclick="switchTab('assign')" id="tabAssign" style="display:none;">分配管理</button>
         <button class="nav-tab" onclick="switchTab('report')">评审报告</button>
       </div>
     </div>
@@ -309,6 +331,33 @@ body {
       </div>
     </div>
 
+    <div class="panel" id="panel-assign">
+      <div class="assign-section">
+        <h3>方式一：自动平均分配</h3>
+        <div class="assign-input-row">
+          <input type="text" id="autoReviewers" placeholder="输入评委姓名，逗号分隔（如：张老师, 李老师, 王老师）">
+          <button class="btn btn-primary" onclick="autoAssign()">平均分配</button>
+        </div>
+        <div class="assign-hint">将清空现有分配，按顺序均分全部作品给各位评委。请输入评委登录时使用的姓名。</div>
+      </div>
+      <div class="assign-section">
+        <h3>方式二：手动分配</h3>
+        <div class="assign-toolbar">
+          <select id="manualReviewer"><option value="">选择评委…</option></select>
+          <button class="btn btn-outline" onclick="assignSelectAll()">全选</button>
+          <button class="btn btn-outline" onclick="assignSelectNone()">全不选</button>
+          <button class="btn btn-primary" onclick="manualAssign()">分配选中</button>
+          <button class="btn btn-outline danger" onclick="manualUnassign()" style="border-color:var(--red);color:var(--red);">取消选中</button>
+        </div>
+        <div id="assignTableWrap" style="overflow-x:auto;"></div>
+      </div>
+      <div class="assign-section">
+        <h3>当前分配概览</h3>
+        <div class="assign-summary" id="assignSummary"></div>
+        <button class="btn btn-outline danger" onclick="clearAllAssign()" style="margin-top:12px;border-color:var(--red);color:var(--red);">清空全部分配</button>
+      </div>
+    </div>
+
     <div class="panel" id="panel-review">
       <div class="review-layout">
         <div class="video-panel" id="videoPanel"></div>
@@ -335,6 +384,7 @@ let reviewerName = '';
 let allEntries = [];
 let currentReviewId = null;
 let pendingEntries = [];
+let assignmentSummary = [];
 
 // ======================== 评分规则 ========================
 const DIM_KEYS = ['content', 'language', 'tech'];
@@ -412,6 +462,7 @@ async function doLogin() {
     badge.textContent = '管理员';
     badge.className = 'user-badge admin-badge';
     document.getElementById('tabImport').style.display = '';
+    document.getElementById('tabAssign').style.display = '';
     document.getElementById('resetBtn').style.display = '';
     document.getElementById('dashMyReviewedLabel').textContent = '整体进度';
     document.getElementById('reviewerProgressSection').style.display = '';
@@ -419,6 +470,7 @@ async function doLogin() {
     badge.textContent = '评委: ' + reviewerName;
     badge.className = 'user-badge reviewer-badge';
     document.getElementById('tabImport').style.display = 'none';
+    document.getElementById('tabAssign').style.display = 'none';
     document.getElementById('resetBtn').style.display = 'none';
     document.getElementById('dashMyReviewedLabel').textContent = '我已评审';
     document.getElementById('reviewerProgressSection').style.display = 'none';
@@ -455,6 +507,7 @@ async function loadEntries() {
     const res = await fetch(API + '/api/entries?' + params.toString());
     const data = await res.json();
     allEntries = data.entries;
+    if (data.assignments) assignmentSummary = data.assignments;
     useOffline = false;
     // 同时同步到 localStorage 作为备份
     if (role === 'admin') saveToStorage(data);
@@ -682,12 +735,13 @@ async function doReset() {
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  const idx = { dashboard: 1, input: 2, report: 3 }[tab];
+  const idx = { dashboard: 1, input: 2, assign: 3, report: 4 }[tab];
   if (idx) document.querySelector('.nav-tab:nth-child(' + idx + ')').classList.add('active');
   const panel = document.getElementById('panel-' + tab);
   if (panel) {
     panel.classList.add('active');
     if (tab === 'dashboard') renderDashboard();
+    if (tab === 'assign') renderAssignPanel();
     if (tab === 'report') renderReport();
   }
 }
@@ -696,6 +750,19 @@ function switchTab(tab) {
 function renderDashboard() {
   const entries = allEntries;
   document.getElementById('dashTotal').textContent = entries.length;
+
+  // 评委未分配作品时的提示
+  if (entries.length === 0 && role === 'reviewer') {
+    document.getElementById('dashMyReviewed').textContent = '0 / 0';
+    document.getElementById('dashAvgScore').textContent = '--';
+    document.getElementById('dashGrid').innerHTML =
+      '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-muted);">' +
+      '<div style="font-size:48px;margin-bottom:12px;">\u{1F4CB}</div>' +
+      '<div style="font-size:16px;font-weight:600;">管理员尚未为您分配评审作品</div>' +
+      '<div style="font-size:13px;margin-top:8px;">请联系管理员在「分配管理」中进行作品分配</div>' +
+      '</div>';
+    return;
+  }
 
   let myReviewed = 0, myScores = [];
   entries.forEach(e => {
@@ -712,20 +779,26 @@ function renderDashboard() {
   if (role === 'admin') {
     const allReviewers = new Set();
     const reviewerStats = {};
+    // 从分配数据中获取评委名单和分配数量
+    (assignmentSummary || []).forEach(a => {
+      allReviewers.add(a.reviewer);
+      if (!reviewerStats[a.reviewer]) reviewerStats[a.reviewer] = { done: 0, assigned: a.count };
+    });
+    // 从评审数据中获取完成数量
     entries.forEach(e => {
       e.reviews.forEach(r => {
         allReviewers.add(r.reviewer);
-        if (!reviewerStats[r.reviewer]) reviewerStats[r.reviewer] = { done: 0, total: entries.length };
+        if (!reviewerStats[r.reviewer]) reviewerStats[r.reviewer] = { done: 0, assigned: entries.length };
         if (r.scores && calcTotal(r.scores) > 0) reviewerStats[r.reviewer].done++;
       });
     });
 
     document.getElementById('reviewerList').innerHTML = Array.from(allReviewers).map(name => {
-      const s = reviewerStats[name];
+      const s = reviewerStats[name] || { done: 0, assigned: 0 };
       const isMe = name === 'admin';
       return '<div class="reviewer-chip" style="' + (isMe ? 'border-color:var(--red);' : '') + '">' +
-        '<span class="r-dot ' + (s && s.done > 0 ? 'on' : 'off') + '"></span>' +
-        name + (isMe ? ' (我)' : '') + ' · ' + s.done + '/' + s.total +
+        '<span class="r-dot ' + (s.done > 0 ? 'on' : 'off') + '"></span>' +
+        name + (isMe ? ' (我)' : '') + ' · ' + s.done + '/' + (s.assigned || entries.length) +
         '</div>';
     }).join('');
   }
@@ -1019,6 +1092,186 @@ async function goToNext() {
   renderReviewPanel(entry, nextReview);
   switchTab('review');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ======================== 分配管理 ========================
+let assignByEntry = {};
+let assignReviewers = [];
+
+async function renderAssignPanel() {
+  const pw = document.getElementById('loginPassword').value;
+  try {
+    const res = await fetch(API + '/api/assignments?password=' + encodeURIComponent(pw));
+    const data = await res.json();
+    assignByEntry = data.byEntry || {};
+    assignReviewers = data.reviewers || [];
+  } catch (e) {
+    assignByEntry = {};
+    assignReviewers = [];
+  }
+  renderAssignTable();
+  renderAssignSummary();
+  // 更新手动分配的评委下拉框
+  var sel = document.getElementById('manualReviewer');
+  var curVal = sel.value;
+  sel.innerHTML = '<option value="">选择评委…</option>' +
+    assignReviewers.map(function(r) { return '<option value="' + r + '">' + r + '</option>'; }).join('') +
+    '<option value="__new__">+ 新评委…</option>';
+  sel.value = curVal;
+}
+
+function renderAssignTable() {
+  var wrap = document.getElementById('assignTableWrap');
+  if (allEntries.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">暂无作品，请先在「作品管理」中导入</div>';
+    return;
+  }
+  var rows = allEntries.map(function(e) {
+    var assigned = assignByEntry[e.id] || [];
+    var tags = assigned.length > 0
+      ? assigned.map(function(r) { return '<span class="assign-tag">' + r + '</span>'; }).join('')
+      : '<span class="assign-tag none">未分配</span>';
+    return '<tr>' +
+      '<td><input type="checkbox" class="assign-check" value="' + e.id + '"></td>' +
+      '<td>#' + e.index + '</td>' +
+      '<td>' + (e.title || '<span style="color:var(--text-muted);font-style:italic;">未命名</span>') + '</td>' +
+      '<td>' + tags + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML = '<table class="assign-table"><thead><tr>' +
+    '<th style="width:30px;"></th><th style="width:40px;">#</th><th>作品名称</th><th>已分配评委</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function renderAssignSummary() {
+  var summary = document.getElementById('assignSummary');
+  if (assignReviewers.length === 0) {
+    summary.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">暂无分配记录</div>';
+    return;
+  }
+  summary.innerHTML = assignReviewers.map(function(r) {
+    var count = 0;
+    Object.keys(assignByEntry).forEach(function(eid) {
+      if (assignByEntry[eid].indexOf(r) >= 0) count++;
+    });
+    return '<div class="assign-summary-card">' +
+      '<div class="name">' + r + '</div>' +
+      '<div class="count">已分配 ' + count + ' 个作品</div>' +
+      '<button class="clear-btn" onclick="clearReviewerAssign(\'' + r + '\')">清空该评委</button>' +
+    '</div>';
+  }).join('');
+}
+
+function getManualReviewer() {
+  var sel = document.getElementById('manualReviewer');
+  if (sel.value === '__new__') {
+    var name = prompt('请输入新评委姓名（需与评委登录时输入的姓名一致）：');
+    if (name && name.trim()) {
+      var opt = document.createElement('option');
+      opt.value = name.trim();
+      opt.textContent = name.trim();
+      sel.appendChild(opt);
+      sel.value = name.trim();
+      return name.trim();
+    }
+    return null;
+  }
+  return sel.value || null;
+}
+
+function getCheckedEntryIds() {
+  return Array.prototype.map.call(document.querySelectorAll('.assign-check:checked'), function(cb) { return parseInt(cb.value); });
+}
+
+function assignSelectAll() {
+  document.querySelectorAll('.assign-check').forEach(function(cb) { cb.checked = true; });
+}
+function assignSelectNone() {
+  document.querySelectorAll('.assign-check').forEach(function(cb) { cb.checked = false; });
+}
+
+async function autoAssign() {
+  var names = document.getElementById('autoReviewers').value.trim();
+  if (!names) { showToast('请输入评委姓名', 'warn'); return; }
+  var reviewers = names.split(/[,，、\s]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+  if (reviewers.length === 0) { showToast('请输入至少一位评委', 'warn'); return; }
+  if (!confirm('将清空现有分配并重新均分给 ' + reviewers.length + ' 位评委，确定？')) return;
+
+  var pw = document.getElementById('loginPassword').value;
+  try {
+    var res = await fetch(API + '/api/assignments/auto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, reviewers: reviewers })
+    });
+    var data = await res.json();
+    if (data.error) { showToast(data.error, 'warn'); return; }
+    showToast('已平均分配 ' + data.total + ' 个作品给 ' + reviewers.length + ' 位评委');
+    document.getElementById('autoReviewers').value = '';
+    await renderAssignPanel();
+    await loadEntries();
+  } catch (e) { showToast('分配失败', 'warn'); }
+}
+
+async function manualAssign() {
+  var reviewer = getManualReviewer();
+  if (!reviewer) { showToast('请选择或输入评委姓名', 'warn'); return; }
+  var entryIds = getCheckedEntryIds();
+  if (entryIds.length === 0) { showToast('请勾选要分配的作品', 'warn'); return; }
+
+  var pw = document.getElementById('loginPassword').value;
+  try {
+    var res = await fetch(API + '/api/assignments/manual', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, reviewer: reviewer, entryIds: entryIds })
+    });
+    var data = await res.json();
+    if (data.error) { showToast(data.error, 'warn'); return; }
+    showToast('已将 ' + entryIds.length + ' 个作品分配给 ' + reviewer);
+    await renderAssignPanel();
+    await loadEntries();
+  } catch (e) { showToast('分配失败', 'warn'); }
+}
+
+async function manualUnassign() {
+  var reviewer = getManualReviewer();
+  if (!reviewer) { showToast('请选择评委', 'warn'); return; }
+  var entryIds = getCheckedEntryIds();
+  if (entryIds.length === 0) { showToast('请勾选要取消分配的作品', 'warn'); return; }
+
+  var pw = document.getElementById('loginPassword').value;
+  try {
+    var res = await fetch(API + '/api/assignments/unassign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw, reviewer: reviewer, entryIds: entryIds })
+    });
+    var data = await res.json();
+    if (data.error) { showToast(data.error, 'warn'); return; }
+    showToast('已取消 ' + reviewer + ' 的 ' + entryIds.length + ' 个作品分配');
+    await renderAssignPanel();
+    await loadEntries();
+  } catch (e) { showToast('操作失败', 'warn'); }
+}
+
+async function clearReviewerAssign(reviewer) {
+  if (!confirm('确定清空 ' + reviewer + ' 的全部分配？')) return;
+  var pw = document.getElementById('loginPassword').value;
+  try {
+    await fetch(API + '/api/assignments/' + encodeURIComponent(reviewer) + '?password=' + encodeURIComponent(pw), { method: 'DELETE' });
+    showToast('已清空 ' + reviewer + ' 的分配');
+    await renderAssignPanel();
+    await loadEntries();
+  } catch (e) { showToast('操作失败', 'warn'); }
+}
+
+async function clearAllAssign() {
+  if (!confirm('确定清空全部分配？所有评委将无法看到作品。')) return;
+  var pw = document.getElementById('loginPassword').value;
+  try {
+    await fetch(API + '/api/assignments?password=' + encodeURIComponent(pw), { method: 'DELETE' });
+    showToast('已清空全部分配');
+    await renderAssignPanel();
+    await loadEntries();
+  } catch (e) { showToast('操作失败', 'warn'); }
 }
 
 // ======================== 报告 ========================
