@@ -336,9 +336,14 @@ body {
         <h3>方式一：自动平均分配</h3>
         <div class="assign-input-row">
           <input type="text" id="autoReviewers" placeholder="输入评委姓名，逗号分隔（如：张老师, 李老师, 王老师）">
+          <select id="autoReviewersPerEntry" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);font-family:var(--font-body);font-size:13px;background:var(--bg);">
+            <option value="1">每作品 1 人评审</option>
+            <option value="2">每作品 2 人评审</option>
+            <option value="3">每作品 3 人评审</option>
+          </select>
           <button class="btn btn-primary" onclick="autoAssign()">平均分配</button>
         </div>
-        <div class="assign-hint">将清空现有分配，按顺序均分全部作品给各位评委。请输入评委登录时使用的姓名。</div>
+        <div class="assign-hint">将清空现有分配，按顺序为每份作品分配指定人数的评委（每人评审不同组合）。多人评审的作品最终以<strong>平均分</strong>作为总成绩。</div>
       </div>
       <div class="assign-section">
         <h3>方式二：手动分配</h3>
@@ -385,6 +390,7 @@ let allEntries = [];
 let currentReviewId = null;
 let pendingEntries = [];
 let assignmentSummary = [];
+let configReviewersPerEntry = 1;
 
 // ======================== 评分规则 ========================
 const DIM_KEYS = ['content', 'language', 'tech'];
@@ -508,6 +514,7 @@ async function loadEntries() {
     const data = await res.json();
     allEntries = data.entries;
     if (data.assignments) assignmentSummary = data.assignments;
+    if (data.reviewersPerEntry) configReviewersPerEntry = data.reviewersPerEntry;
     useOffline = false;
     // 同时同步到 localStorage 作为备份
     if (role === 'admin') saveToStorage(data);
@@ -1111,6 +1118,8 @@ async function renderAssignPanel() {
   }
   renderAssignTable();
   renderAssignSummary();
+  // 预填评审人数配置
+  document.getElementById('autoReviewersPerEntry').value = String(configReviewersPerEntry || 1);
   // 更新手动分配的评委下拉框
   var sel = document.getElementById('manualReviewer');
   var curVal = sel.value;
@@ -1195,17 +1204,22 @@ async function autoAssign() {
   if (!names) { showToast('请输入评委姓名', 'warn'); return; }
   var reviewers = names.split(/[,，、\s]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
   if (reviewers.length === 0) { showToast('请输入至少一位评委', 'warn'); return; }
-  if (!confirm('将清空现有分配并重新均分给 ' + reviewers.length + ' 位评委，确定？')) return;
+
+  var nPer = parseInt(document.getElementById('autoReviewersPerEntry').value) || 1;
+  if (nPer > reviewers.length) { showToast('每作品评审人数不能超过评委总数(' + reviewers.length + ')', 'warn'); return; }
+
+  if (!confirm('将清空现有分配，每份作品由 ' + nPer + ' 位不同评委评审，确定？')) return;
 
   var pw = document.getElementById('loginPassword').value;
   try {
     var res = await fetch(API + '/api/assignments/auto', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw, reviewers: reviewers })
+      body: JSON.stringify({ password: pw, reviewers: reviewers, reviewersPerEntry: nPer })
     });
     var data = await res.json();
     if (data.error) { showToast(data.error, 'warn'); return; }
-    showToast('已平均分配 ' + data.total + ' 个作品给 ' + reviewers.length + ' 位评委');
+    if (data.reviewersPerEntry) configReviewersPerEntry = data.reviewersPerEntry;
+    showToast('已分配 ' + data.total + ' 个作品 × ' + (data.reviewersPerEntry || 1) + ' 人/作品 = 共 ' + (data.total * (data.reviewersPerEntry || 1)) + ' 次评审');
     document.getElementById('autoReviewers').value = '';
     await renderAssignPanel();
     await loadEntries();

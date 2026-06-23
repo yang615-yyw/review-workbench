@@ -44,6 +44,11 @@ db.exec(`
     UNIQUE(entry_id, reviewer)
   );
   CREATE INDEX IF NOT EXISTS idx_assign_reviewer ON assignments(reviewer);
+  CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT DEFAULT ''
+  );
+  INSERT OR IGNORE INTO config (key, value) VALUES ('reviewers_per_entry', '1');
 `);
 
 // ======================== 数据读取映射 ========================
@@ -104,10 +109,12 @@ app.get('/api/entries', (req, res) => {
     return res.json({ entries: filtered, hasAssignment: true });
   }
 
-  // 管理员：返回全部作品 + 分配概览
+  // 管理员：返回全部作品 + 分配概览 + 评审人数配置
   const entries = getAllEntries();
   const assignSummary = db.prepare('SELECT reviewer, COUNT(*) as count FROM assignments GROUP BY reviewer').all();
-  res.json({ entries, assignments: assignSummary });
+  const rpe = db.prepare('SELECT value FROM config WHERE key = ?').get('reviewers_per_entry');
+  const reviewersPerEntry = rpe ? parseInt(rpe.value) || 1 : 1;
+  res.json({ entries, assignments: assignSummary, reviewersPerEntry });
 });
 
 // 管理员导入作品（批量添加）
@@ -201,6 +208,8 @@ app.post('/api/reset', (req, res) => {
   db.prepare('DELETE FROM reviews').run();
   db.prepare('DELETE FROM assignments').run();
   db.prepare('DELETE FROM entries').run();
+  db.prepare('DELETE FROM config').run();
+  db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (\'reviewers_per_entry\', \'1\')').run();
   res.json({ ok: true });
 });
 
@@ -236,22 +245,29 @@ app.get('/api/assignments', (req, res) => {
   res.json({ byReviewer, byEntry, reviewers: Array.from(reviewers) });
 });
 
-// 自动平均分配（清空现有分配后重新均分）
+// 自动平均分配（清空现有分配后重新分配，支持每作品多评委评审）
 app.post('/api/assignments/auto', (req, res) => {
-  const { password, reviewers } = req.body;
+  const { password, reviewers, reviewersPerEntry } = req.body;
   if (password !== ADMIN_PASSWORD) return res.status(403).json({ error: '无管理员权限' });
   if (!reviewers || !Array.isArray(reviewers) || reviewers.length === 0) {
     return res.status(400).json({ error: '请提供评委名单' });
   }
 
+  const nPer = Math.min(Math.max(parseInt(reviewersPerEntry) || 1, 1), reviewers.length);
+
   const entries = db.prepare('SELECT id FROM entries ORDER BY index_num').all();
   if (entries.length === 0) return res.status(400).json({ error: '暂无作品可分配' });
 
   db.prepare('DELETE FROM assignments').run();
+  db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run('reviewers_per_entry', String(nPer));
+
   const insertAssign = db.prepare('INSERT OR IGNORE INTO assignments (entry_id, reviewer) VALUES (?, ?)');
   const assignAll = db.transaction(() => {
     entries.forEach((e, i) => {
-      insertAssign.run(e.id, reviewers[i % reviewers.length]);
+      for (let n = 0; n < nPer; n++) {
+        const reviewerIdx = (i * nPer + n) % reviewers.length;
+        insertAssign.run(e.id, reviewers[reviewerIdx]);
+      }
     });
   });
   assignAll();
@@ -260,7 +276,7 @@ app.post('/api/assignments/auto', (req, res) => {
   reviewers.forEach(r => {
     summary[r] = db.prepare('SELECT COUNT(*) as c FROM assignments WHERE reviewer = ?').get(r).c;
   });
-  res.json({ ok: true, summary, total: entries.length });
+  res.json({ ok: true, summary, total: entries.length, reviewersPerEntry: nPer });
 });
 
 // 手动分配（将指定作品分配给某评委）
