@@ -875,6 +875,7 @@ function renderReviewPanel(entry, review) {
       '<button class="btn btn-outline" onclick="closeReview()">返回列表</button>' +
       '<button class="btn btn-outline" onclick="resetMyReview()">重置</button>' +
       '<button class="btn btn-primary" onclick="submitReview()">保存评审</button>' +
+      '<button class="btn btn-primary" onclick="goToNext()" style="background:var(--pass-green);">下一个作品 →</button>' +
     '</div>';
 }
 
@@ -971,6 +972,53 @@ function resetMyReview() {
 function closeReview() {
   delete localReviewCache[currentReviewId];
   switchTab('dashboard');
+}
+
+async function goToNext() {
+  // 先尝试保存当前评审
+  const review = getLocalReview();
+  if (review) {
+    const unchecked = SCORING_RULES.hardRequirements.filter(h =>
+      review.hardChecks[h.id] !== true && review.hardChecks[h.id] !== false
+    );
+    const total = calcTotal(review.scores);
+    if (unchecked.length === 0 && total > 0) {
+      try {
+        await fetch(API + '/api/entries/' + currentReviewId + '/review', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reviewer: reviewerName,
+            scores: review.scores,
+            hardChecks: review.hardChecks,
+            notes: review.notes || ''
+          })
+        });
+        delete localReviewCache[currentReviewId];
+        await loadEntries();
+      } catch (e) { /* 保存失败不阻塞跳转 */ }
+    }
+  }
+
+  // 找下一个作品
+  var sorted = allEntries.slice().sort(function(a, b) { return a.index - b.index; });
+  var currentIdx = -1;
+  for (var i = 0; i < sorted.length; i++) {
+    if (sorted[i].id === currentReviewId) { currentIdx = i; break; }
+  }
+  if (currentIdx < 0 || currentIdx >= sorted.length - 1) {
+    showToast('已是最后一个作品，返回列表', 'info');
+    switchTab('dashboard');
+    return;
+  }
+
+  var nextId = sorted[currentIdx + 1].id;
+  currentReviewId = nextId;
+  var entry = allEntries.find(function(e) { return e.id === nextId; });
+  if (!entry) return;
+  var nextReview = getMyReview(entry);
+  renderReviewPanel(entry, nextReview);
+  switchTab('review');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ======================== 报告 ========================
