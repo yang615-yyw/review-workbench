@@ -1,0 +1,439 @@
+global requestG
+global responseG
+global paraMapG
+global scriptPathG
+
+outG := "TX_END_RESPONSE_XT"
+setRespHeader(responseG, "Content-Type", "text/json; charset=utf-8")
+
+ADMIN_PASSWORD := "admin2026"
+actT := trim(paraMapG["act"])
+
+// =================== UID + DB 初始化 ===================
+uidT := ""
+appsIdxT := strIndex(scriptPathG, "/apps/")
+if appsIdxT >= 0 {
+    restT := strSub(scriptPathG, appsIdxT + 6, len(scriptPathG))
+    slIdxT := strIndex(restT, "/")
+    if slIdxT > 0 { uidT = strSub(restT, 0, slIdxT) }
+}
+if uidT == "" {
+    writeResp(responseG, toJson({"error": "无法识别用户"}))
+    return outG
+}
+
+appNameT := trim(strReplace(scriptPathG, "/index.char", ""))
+slashIdxT := strIndex(appNameT, "/")
+for slashIdxT >= 0 {
+    appNameT = strSub(appNameT, slashIdxT + 1, len(appNameT))
+    slashIdxT = strIndex(appNameT, "/")
+}
+
+dataDirT := "/mnt1/fltrpop/data/" + uidT + "/" + appNameT
+if !isDir(dataDirT) { ensureMakeDirs(dataDirT) }
+dbPathT := dataDirT + "/app.db"
+
+dbT := dbConnect("sqlite3", dbPathT)
+if isErr(dbT) {
+    writeResp(responseG, toJson({"error": "数据库连接失败"}))
+    return outG
+}
+
+// =================== 建表 ===================
+try {
+    dbExec(dbT, "CREATE TABLE IF NOT EXISTS entries (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT, title TEXT, index_num INTEGER)")
+    dbExec(dbT, "CREATE TABLE IF NOT EXISTS reviews (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE, reviewer TEXT NOT NULL, scores TEXT DEFAULT '{}', hard_checks TEXT DEFAULT '{}', notes TEXT DEFAULT '', updated_at TEXT, UNIQUE(entry_id, reviewer))")
+    dbExec(dbT, "CREATE TABLE IF NOT EXISTS assignments (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE, reviewer TEXT NOT NULL, UNIQUE(entry_id, reviewer))")
+    dbExec(dbT, "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT DEFAULT '')")
+    dbExec(dbT, "INSERT OR IGNORE INTO config (key, value) VALUES ('reviewers_per_entry', '1')")
+    dbExec(dbT, "CREATE INDEX IF NOT EXISTS idx_reviews_entry ON reviews(entry_id)")
+    dbExec(dbT, "CREATE INDEX IF NOT EXISTS idx_reviews_reviewer ON reviews(reviewer)")
+    dbExec(dbT, "CREATE INDEX IF NOT EXISTS idx_assign_reviewer ON assignments(reviewer)")
+} catch e {
+    writeResp(responseG, toJson({"error": "数据库初始化失败: " + toStr(e)}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== 辅助函数 ===================
+getAllEntries := func() {
+    rowsT := dbQuery(dbT, "SELECT * FROM entries ORDER BY index_num, id")
+    resultT := []
+    for _, row in rowsT {
+        entryIdT := toStr(row["id"])
+        reviewsT := dbQuery(dbT, "SELECT * FROM reviews WHERE entry_id = ?", entryIdT)
+        entryMapT := {
+            "id": int(row["id"]),
+            "url": row["url"],
+            "title": row["title"],
+            "index": int(row["index_num"]),
+            "reviews": reviewsT,
+        }
+        resultT = append(resultT, entryMapT)
+    }
+    return resultT
+}
+
+calcTotal := func(scoresJson) {
+    if scoresJson == "" || isErr(scoresJson) { return 0 }
+    sT := scoresJson
+    if !isMap(sT) { sT = fromJson(sT) }
+    totalT := 0
+    totalT = totalT + int(getMapItem(sT, "content", 0))
+    totalT = totalT + int(getMapItem(sT, "language", 0))
+    totalT = totalT + int(getMapItem(sT, "tech", 0))
+    return totalT
+}
+
+// =================== act=entries 获取作品列表 ===================
+if actT == "entries" {
+    roleT := trim(paraMapG["role"])
+    reviewerT := trim(paraMapG["reviewer"])
+    entriesT := getAllEntries()
+
+    // 评委端：只返回分配给自己的作品
+    if roleT == "reviewer" && reviewerT != "" {
+        assignedIdsT := dbQuery(dbT, "SELECT entry_id FROM assignments WHERE reviewer = ?", reviewerT)
+        assignedSetT := {}
+        for _, a in assignedIdsT { setMapItem(assignedSetT, toStr(a["entry_id"]), true) }
+
+        filteredT := []
+        for _, e in entriesT {
+            if contains(assignedSetT, toStr(e["id"])) {
+                myReviewT := {}
+                for _, r in e["reviews"] {
+                    if r["reviewer"] == reviewerT {
+                        myReviewT = r
+                        break
+                    }
+                }
+                reviewerNamesT := []
+                for _, r in e["reviews"] { reviewerNamesT = append(reviewerNamesT, r["reviewer"]) }
+                filteredT = append(filteredT, {
+                    "id": e["id"],
+                    "url": e["url"],
+                    "title": e["title"],
+                    "index": e["index"],
+                    "reviews": len(myReviewT) > 0 ? [] + [myReviewT] : [],
+                    "reviewerNames": reviewerNamesT,
+                    "totalReviewers": len(e["reviews"]),
+                })
+            }
+        }
+        assignSummaryT := dbQuery(dbT, "SELECT reviewer, COUNT(*) as count FROM assignments GROUP BY reviewer")
+        writeResp(responseG, toJson({"entries": filteredT, "assignments": assignSummaryT}))
+        dbClose(dbT)
+        return outG
+    }
+
+    // 管理员端
+    assignSummaryT := dbQuery(dbT, "SELECT reviewer, COUNT(*) as count FROM assignments GROUP BY reviewer")
+    rpeRowsT := dbQuery(dbT, "SELECT value FROM config WHERE key = 'reviewers_per_entry'")
+    nPerT := 1
+    for _, rpeRow in rpeRowsT { nPerT = int(rpeRow["value"]) }
+    writeResp(responseG, toJson({"entries": entriesT, "assignments": assignSummaryT, "reviewersPerEntry": nPerT}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=auth 认证 ===================
+if actT == "auth" {
+    roleT := trim(paraMapG["role"])
+    passwordT := trim(paraMapG["password"])
+    reviewerT := trim(paraMapG["reviewer"])
+
+    if roleT == "admin" {
+        if passwordT == ADMIN_PASSWORD {
+            writeResp(responseG, toJson({"ok": true, "role": "admin"}))
+        } else {
+            writeResp(responseG, toJson({"error": "密码错误"}))
+        }
+        dbClose(dbT)
+        return outG
+    }
+
+    if roleT == "reviewer" {
+        if reviewerT == "" { writeResp(responseG, toJson({"error": "请输入评委姓名"})); dbClose(dbT); return outG }
+        writeResp(responseG, toJson({"ok": true, "role": "reviewer", "reviewer": reviewerT}))
+        dbClose(dbT)
+        return outG
+    }
+
+    writeResp(responseG, toJson({"error": "无效角色"}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=import 导入作品 ===================
+if actT == "import" {
+    passwordT := trim(paraMapG["password"])
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+
+    entriesJson := trim(paraMapG["entries"])
+    entriesDataT := fromJson(entriesJson)
+    if isErr(entriesDataT) { writeResp(responseG, toJson({"error": "数据格式错误"})); dbClose(dbT); return outG }
+
+    importedT := 0
+    maxRowsT := dbQuery(dbT, "SELECT COALESCE(MAX(index_num), 0) as m FROM entries")
+    nextIdxT := 1
+    for _, mr in maxRowsT { nextIdxT = int(mr["m"]) + 1 }
+
+    dbExec(dbT, "BEGIN")
+    try {
+        insertStmtT := "INSERT INTO entries (url, title, index_num) VALUES (?, ?, ?)"
+        for _, item in entriesDataT {
+            urlT := trim(item["url"])
+            titleT := trim(item["title"])
+            if urlT != "" {
+                dbExec(dbT, insertStmtT, urlT, titleT, nextIdxT)
+                nextIdxT = nextIdxT + 1
+                importedT = importedT + 1
+            }
+        }
+        dbExec(dbT, "COMMIT")
+    } catch e {
+        dbExec(dbT, "ROLLBACK")
+        writeResp(responseG, toJson({"error": "导入失败: " + toStr(e)}))
+        dbClose(dbT)
+        return outG
+    }
+
+    writeResp(responseG, toJson({"ok": true, "count": importedT}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=review 提交评审 ===================
+if actT == "review" {
+    reviewerT := trim(paraMapG["reviewer"])
+    idT := trim(paraMapG["id"])
+    scoresJson := trim(paraMapG["scores"])
+    hardChecksJson := trim(paraMapG["hardChecks"])
+    notesT := trim(paraMapG["notes"])
+
+    if reviewerT == "" || idT == "" { writeResp(responseG, toJson({"error": "缺少参数"})); dbClose(dbT); return outG }
+
+    // 校验分配权限
+    aRowsT := dbQuery(dbT, "SELECT COUNT(*) as c FROM assignments WHERE entry_id = ? AND reviewer = ?", idT, reviewerT)
+    aCntT := 0
+    for _, ar in aRowsT { aCntT = int(ar["c"]) }
+    if aCntT == 0 {
+        writeResp(responseG, toJson({"error": "您未被分配评审该作品"}))
+        dbClose(dbT)
+        return outG
+    }
+
+    nowT := formatTime(now(), "2006-01-02 15:04:05")
+    dbExec(dbT, "INSERT INTO reviews (entry_id, reviewer, scores, hard_checks, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(entry_id, reviewer) DO UPDATE SET scores = excluded.scores, hard_checks = excluded.hard_checks, notes = excluded.notes, updated_at = excluded.updated_at", idT, reviewerT, scoresJson, hardChecksJson, notesT, nowT)
+    writeResp(responseG, toJson({"ok": true}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=autoassign 自动分配 ===================
+if actT == "autoassign" {
+    passwordT := trim(paraMapG["password"])
+    reviewersJson := trim(paraMapG["reviewers"])
+    nPerStr := trim(paraMapG["reviewersPerEntry"])
+
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+
+    reviewersT := fromJson(reviewersJson)
+    if isErr(reviewersT) || !isArray(reviewersT) || len(reviewersT) == 0 {
+        writeResp(responseG, toJson({"error": "请提供评委名单"}))
+        dbClose(dbT)
+        return outG
+    }
+
+    nPerT := 1
+    if nPerStr != "" { nPerT = int(nPerStr) }
+    if nPerT < 1 { nPerT = 1 }
+    if nPerT > len(reviewersT) { nPerT = len(reviewersT) }
+
+    entriesT := dbQuery(dbT, "SELECT id FROM entries ORDER BY index_num")
+    if len(entriesT) == 0 { writeResp(responseG, toJson({"error": "暂无作品可分配"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "DELETE FROM assignments")
+    dbExec(dbT, "INSERT OR REPLACE INTO config (key, value) VALUES ('reviewers_per_entry', ?)", toStr(nPerT))
+
+    dbExec(dbT, "BEGIN")
+    try {
+        for i, e in entriesT {
+            n := 0
+            for n < nPerT {
+                reviewerIdxT := (i * nPerT + n) % len(reviewersT)
+                dbExec(dbT, "INSERT OR IGNORE INTO assignments (entry_id, reviewer) VALUES (?, ?)", e["id"], reviewersT[reviewerIdxT])
+                n = n + 1
+            }
+        }
+        dbExec(dbT, "COMMIT")
+    } catch e2 {
+        dbExec(dbT, "ROLLBACK")
+        writeResp(responseG, toJson({"error": "分配失败: " + toStr(e2)}))
+        dbClose(dbT)
+        return outG
+    }
+
+    summaryT := {}
+    for _, r in reviewersT { sRowsT := dbQuery(dbT, "SELECT COUNT(*) as c FROM assignments WHERE reviewer = ?", r); sCntT := 0; for _, sr in sRowsT { sCntT = int(sr["c"]) }; setMapItem(summaryT, r, sCntT) }
+    writeResp(responseG, toJson({"ok": true, "summary": summaryT, "total": len(entriesT), "reviewersPerEntry": nPerT}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=manualassign 手动分配 ===================
+if actT == "manualassign" {
+    passwordT := trim(paraMapG["password"])
+    reviewerT := trim(paraMapG["reviewer"])
+    entryIdsJson := trim(paraMapG["entryIds"])
+
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+    if reviewerT == "" { writeResp(responseG, toJson({"error": "请选择评委"})); dbClose(dbT); return outG }
+
+    entryIdsT := fromJson(entryIdsJson)
+    if isErr(entryIdsT) || !isArray(entryIdsT) { writeResp(responseG, toJson({"error": "请选择作品"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "BEGIN")
+    try {
+        for _, eid in entryIdsT {
+            dbExec(dbT, "INSERT OR IGNORE INTO assignments (entry_id, reviewer) VALUES (?, ?)", toStr(eid), reviewerT)
+        }
+        dbExec(dbT, "COMMIT")
+    } catch e2 {
+        dbExec(dbT, "ROLLBACK")
+        writeResp(responseG, toJson({"error": "分配失败: " + toStr(e2)}))
+        dbClose(dbT)
+        return outG
+    }
+
+    cRowsT := dbQuery(dbT, "SELECT COUNT(*) as c FROM assignments WHERE reviewer = ?", reviewerT)
+    cCntT := 0
+    for _, cr in cRowsT { cCntT = int(cr["c"]) }
+    writeResp(responseG, toJson({"ok": true, "count": cCntT}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=unassign 取消手动分配 ===================
+if actT == "unassign" {
+    passwordT := trim(paraMapG["password"])
+    reviewerT := trim(paraMapG["reviewer"])
+    entryIdT := trim(paraMapG["entryId"])
+
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+    if reviewerT == "" || entryIdT == "" { writeResp(responseG, toJson({"error": "缺少参数"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "DELETE FROM assignments WHERE entry_id = ? AND reviewer = ?", entryIdT, reviewerT)
+    c2RowsT := dbQuery(dbT, "SELECT COUNT(*) as c FROM assignments WHERE reviewer = ?", reviewerT)
+    c2CntT := 0
+    for _, c2r in c2RowsT { c2CntT = int(c2r["c"]) }
+    writeResp(responseG, toJson({"ok": true, "count": c2CntT}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=clearreviewer 清空某评委分配 ===================
+if actT == "clearreviewer" {
+    passwordT := trim(paraMapG["password"])
+    reviewerT := trim(paraMapG["reviewer"])
+
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+    if reviewerT == "" { writeResp(responseG, toJson({"error": "缺少评委名"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "DELETE FROM assignments WHERE reviewer = ?", reviewerT)
+    writeResp(responseG, toJson({"ok": true}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=clearallassign 清空全部分配 ===================
+if actT == "clearallassign" {
+    passwordT := trim(paraMapG["password"])
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "DELETE FROM assignments")
+    writeResp(responseG, toJson({"ok": true}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=reset 重置全部数据 ===================
+if actT == "reset" {
+    passwordT := trim(paraMapG["password"])
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "DELETE FROM reviews")
+    dbExec(dbT, "DELETE FROM assignments")
+    dbExec(dbT, "DELETE FROM entries")
+    dbExec(dbT, "DELETE FROM config")
+    dbExec(dbT, "INSERT OR IGNORE INTO config (key, value) VALUES ('reviewers_per_entry', '1')")
+    writeResp(responseG, toJson({"ok": true}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=assignments 查看分配详情 ===================
+if actT == "assignments" {
+    passwordT := trim(paraMapG["password"])
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+
+    assignRowsT := dbQuery(dbT, "SELECT entry_id, reviewer FROM assignments ORDER BY entry_id, reviewer")
+    byEntryT := {}
+    reviewerSetT := {}
+    for _, a in assignRowsT {
+        eidT := toStr(a["entry_id"])
+        rT := a["reviewer"]
+        existingT := getMapItem(byEntryT, eidT, [])
+        existingT = append(existingT, rT)
+        setMapItem(byEntryT, eidT, existingT)
+        setMapItem(reviewerSetT, rT, true)
+    }
+    reviewerListT := []
+    for _, a2 in assignRowsT {
+        r2T := a2["reviewer"]
+        if contains(reviewerSetT, r2T) {
+            reviewerListT = append(reviewerListT, r2T)
+            delete(reviewerSetT, r2T)
+        }
+    }
+    // 也包含有评审记录但未分配的名字
+    revNamesT := dbQuery(dbT, "SELECT DISTINCT reviewer FROM reviews")
+    for _, rn in revNamesT {
+        rnT := rn["reviewer"]
+        foundT := false
+        for _, ex in reviewerListT { if ex == rnT { foundT = true; break } }
+        if !foundT { reviewerListT = append(reviewerListT, rnT) }
+    }
+
+    writeResp(responseG, toJson({"byEntry": byEntryT, "reviewers": reviewerListT}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== act=deleteentry 删除作品 ===================
+if actT == "deleteentry" {
+    passwordT := trim(paraMapG["password"])
+    idT := trim(paraMapG["id"])
+    if passwordT != ADMIN_PASSWORD { writeResp(responseG, toJson({"error": "无管理员权限"})); dbClose(dbT); return outG }
+    if idT == "" { writeResp(responseG, toJson({"error": "缺少作品ID"})); dbClose(dbT); return outG }
+
+    dbExec(dbT, "DELETE FROM reviews WHERE entry_id = ?", idT)
+    dbExec(dbT, "DELETE FROM assignments WHERE entry_id = ?", idT)
+    dbExec(dbT, "DELETE FROM entries WHERE id = ?", idT)
+    writeResp(responseG, toJson({"ok": true}))
+    dbClose(dbT)
+    return outG
+}
+
+// =================== 默认：返回 HTML 页面 ===================
+dbClose(dbT)
+setRespHeader(responseG, "Content-Type", "text/html; charset=utf-8")
+setRespHeader(responseG, "Cache-Control", "no-cache")
+
+htmlT := loadText(strReplace(scriptPathG, "index.char", "index.html"))
+if isErr(htmlT) {
+    writeResp(responseG, "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>评审工作台</title></head><body style='font-family:sans-serif;padding:40px;text-align:center'><h2 style='color:#c0392b'>页面加载失败</h2><p>请检查部署是否完整，或联系管理员。</p></body></html>")
+    return outG
+}
+writeResp(responseG, htmlT)
+return outG

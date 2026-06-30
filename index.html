@@ -520,15 +520,30 @@ function getDemoData() {
 let useOffline = false;
 
 function parseReviewJson(r) {
+  // scores 解析
   if (typeof r.scores === 'string' && r.scores) {
     try { r.scores = JSON.parse(r.scores); } catch(e) { r.scores = makeEmptyScores(); }
   }
+  // hard_checks 归一化：DB 列名 hard_checks（下划线）→ 前端统一用 hardChecks（驼峰）
+  var hc = null;
   if (typeof r.hardChecks === 'string' && r.hardChecks) {
-    try { r.hardChecks = JSON.parse(r.hardChecks); } catch(e) { r.hardChecks = {}; }
+    try { hc = JSON.parse(r.hardChecks); } catch(e) { hc = null; }
   }
-  if (typeof r.hard_checks === 'string' && r.hard_checks) {
-    try { r.hard_checks = JSON.parse(r.hard_checks); } catch(e) { r.hard_checks = {}; }
+  if (!hc && typeof r.hard_checks === 'string' && r.hard_checks) {
+    try { hc = JSON.parse(r.hard_checks); } catch(e) { hc = null; }
   }
+  if (hc && typeof hc === 'object') {
+    r.hardChecks = hc;
+  }
+  if (!r.hardChecks || typeof r.hardChecks !== 'object') {
+    r.hardChecks = {};
+  }
+  // 清理可能的硬性条件值为字符串 "true"/"false" 的情况
+  Object.keys(r.hardChecks).forEach(function(k) {
+    var v = r.hardChecks[k];
+    if (v === 'true' || v === true) r.hardChecks[k] = true;
+    else if (v === 'false' || v === false) r.hardChecks[k] = false;
+  });
   return r;
 }
 
